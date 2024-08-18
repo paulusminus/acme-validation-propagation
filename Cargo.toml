@@ -4,7 +4,7 @@ description = "Waiting for propagation of acme validation record"
 edition = "2021"
 license = "MIT"
 name = "acme-validation-propagation"
-repository = "https://github.com/paulusminus/transip"
+repository = "https://github.com/paulusminus/acme-validation-propagation"
 rust-version = "1.68.2"
 version = "0.1.6"
 
