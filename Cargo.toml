@@ -1,0 +1,23 @@
+[package]
+authors = ["Paul Min"]
+description = "Waiting for propagation of acme validation record"
+edition = "2021"
+license = "MIT"
+name = "acme-validation-propagation"
+repository = "https://github.com/paulusminus/transip"
+rust-version = "1.68.2"
+version = "0.1.6"
+
+[dependencies]
+thiserror = "1"
+tracing = "0.1"
+hickory-resolver = "0.24"
+
+[dev-dependencies]
+tracing-subscriber = "0.3"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
