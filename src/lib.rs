@@ -88,7 +88,7 @@ mod tests {
     }
 
     fn aaaa_to_ipv6(aaaa: AAAA) -> IpAddr {
-        IpAddr::V6((*aaaa).clone())
+        IpAddr::V6(*aaaa)
     }
 
     fn lookup(name: &str) -> impl Fn(Resolver) -> Result<Ipv6Lookup, Error> + '_ {

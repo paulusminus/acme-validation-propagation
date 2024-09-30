@@ -222,7 +222,7 @@ mod test {
 
         let result = resolvers
             .iter()
-            .map(|resolver| resolver.has_single_acme(DOMAIN_NAME, "JaJaNeeNee".into()))
+            .map(|resolver| resolver.has_single_acme(DOMAIN_NAME, "JaJaNeeNee"))
             .collect::<Result<Vec<bool>, Error>>()
             .unwrap()
             .into_iter()
