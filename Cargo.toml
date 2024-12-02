@@ -10,7 +10,7 @@ version = "0.1.8"
 
 [dependencies]
 thiserror = "2.0.0"
-tracing = "0.1.40"
+tracing = "0.1.41"
 hickory-resolver = "0.24.1"
 
 [dev-dependencies]
