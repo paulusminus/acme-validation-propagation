@@ -1,17 +1,17 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use hickory_resolver::{
+    Resolver,
     config::{
-        LookupIpStrategy, NameServerConfigGroup, ResolverConfig, ResolverOpts, CLOUDFLARE_IPS,
-        GOOGLE_IPS,
+        CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolverConfig,
+        ResolverOpts,
     },
     error::ResolveErrorKind,
     lookup::{Ipv4Lookup, Ipv6Lookup},
     proto::rr::rdata::{A, AAAA},
-    Resolver,
 };
 
-use crate::{recursive_resolver, Error};
+use crate::{Error, recursive_resolver};
 
 pub(crate) enum ResolverType {
     Google,
@@ -177,7 +177,7 @@ impl AuthoritiveResolver {
 mod test {
     use std::convert::identity;
 
-    use crate::{error::Error, ResolverType};
+    use crate::{ResolverType, error::Error};
 
     use super::RecursiveResolver;
 

@@ -1,8 +1,8 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 
 use hickory_resolver::{
-    config::{LookupIpStrategy, NameServerConfigGroup, ResolverConfig, ResolverOpts},
     Resolver,
+    config::{LookupIpStrategy, NameServerConfigGroup, ResolverConfig, ResolverOpts},
 };
 use std::{convert::identity, net::IpAddr, thread::sleep, time::Duration};
 
@@ -76,12 +76,12 @@ mod tests {
     use std::{fmt::Display, net::IpAddr};
 
     use hickory_resolver::{
+        Resolver,
         lookup::{Ipv6Lookup, NsLookup},
         proto::rr::rdata::{AAAA, NS},
-        Resolver,
     };
 
-    use crate::{error::Error, ResolverType};
+    use crate::{ResolverType, error::Error};
 
     fn to_string<D: Display>(d: D) -> String {
         d.to_string()
