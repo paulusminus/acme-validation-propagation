@@ -1,14 +1,15 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use futures_util::future::join_all;
 use hickory_resolver::{
-    Resolver,
-    config::{
-        CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolverConfig,
-        ResolverOpts,
-    },
-    error::ResolveErrorKind,
+    ResolveErrorKind, Resolver,
+    config::{CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolverConfig},
     lookup::{Ipv4Lookup, Ipv6Lookup},
-    proto::rr::rdata::{A, AAAA},
+    name_server::{GenericConnector, TokioConnectionProvider},
+    proto::{
+        rr::rdata::{A, AAAA},
+        runtime::TokioRuntimeProvider,
+    },
 };
 
 use crate::{Error, recursive_resolver};
@@ -33,7 +34,7 @@ impl ResolverType {
         }
     }
 
-    pub fn resolver(&self, ipv6_only: bool) -> Result<Resolver, Error> {
+    pub fn resolver(&self, ipv6_only: bool) -> Resolver<GenericConnector<TokioRuntimeProvider>> {
         match self {
             ResolverType::Google => recursive_resolver(self.nameservers(), ipv6_only),
             ResolverType::Cloudflare => recursive_resolver(self.nameservers(), ipv6_only),
@@ -41,8 +42,8 @@ impl ResolverType {
         }
     }
 
-    pub fn recursive_resolver(&self, ipv6_only: bool) -> Result<RecursiveResolver, Error> {
-        self.resolver(ipv6_only).map(RecursiveResolver::from)
+    pub fn recursive_resolver(&self, ipv6_only: bool) -> RecursiveResolver {
+        self.resolver(ipv6_only).into()
     }
 }
 
@@ -62,71 +63,82 @@ fn a_mapper(f: fn(A) -> IpAddr) -> impl Fn(Ipv4Lookup) -> Vec<IpAddr> {
     move |lookup| lookup.into_iter().map(f).collect()
 }
 
-fn default_ipv6_resolver_opts(recursion: bool) -> ResolverOpts {
-    let mut options = ResolverOpts::default();
-    options.ip_strategy = LookupIpStrategy::Ipv6Only;
-    options.recursion_desired = recursion;
-    options.use_hosts_file = false;
-    options
-}
+// fn default_ipv6_resolver_opts(recursion: bool) -> ResolverOpts {
+//     let mut options = ResolverOpts::default();
+//     options.ip_strategy = LookupIpStrategy::Ipv6Only;
+//     options.recursion_desired = recursion;
+//     options.use_hosts_file = ResolveHosts::Never;
+//     options
+// }
 
-fn ipv6_resolver(group: NameServerConfigGroup, recursion: bool) -> Result<Resolver, Error> {
-    Resolver::new(
+fn ipv6_resolver(
+    group: NameServerConfigGroup,
+    recursion: bool,
+) -> Result<Resolver<GenericConnector<TokioRuntimeProvider>>, Error> {
+    let mut builder = Resolver::builder_with_config(
         ResolverConfig::from_parts(None, vec![], group),
-        default_ipv6_resolver_opts(recursion),
-    )
-    .map_err(Error::from)
+        TokioConnectionProvider::new(TokioRuntimeProvider::new()),
+    );
+    builder.options_mut().ip_strategy = LookupIpStrategy::Ipv6Only;
+    builder.options_mut().recursion_desired = recursion;
+    Ok(builder.build())
 }
 
 pub struct RecursiveResolver {
-    inner: Resolver,
+    inner: Resolver<GenericConnector<TokioRuntimeProvider>>,
 }
 
-impl From<Resolver> for RecursiveResolver {
-    fn from(resolver: Resolver) -> Self {
+impl From<Resolver<GenericConnector<TokioRuntimeProvider>>> for RecursiveResolver {
+    fn from(resolver: Resolver<GenericConnector<TokioRuntimeProvider>>) -> Self {
         Self { inner: resolver }
     }
 }
 
 impl RecursiveResolver {
-    pub fn authoritive_resolvers<S>(
+    pub async fn authoritive_resolvers<S>(
         &self,
         domain_name: S,
     ) -> Result<Vec<AuthoritiveResolver>, Error>
     where
         S: AsRef<str>,
     {
-        self.nameservers(domain_name).and_then(|nameserver| {
-            nameserver
+        let nameservers = self.nameservers(domain_name).await?;
+        let h = join_all(
+            nameservers
                 .into_iter()
-                .map(|host_name| self.authoritive_resolver(host_name))
-                .collect::<Result<Vec<AuthoritiveResolver>, Error>>()
-        })
+                .map(|hostname| self.authoritive_resolver(hostname)),
+        )
+        .await;
+        h.into_iter()
+            .collect::<Result<Vec<AuthoritiveResolver>, Error>>()
     }
 
-    pub fn nameservers<S>(&self, domain_name: S) -> Result<Vec<String>, Error>
+    pub async fn nameservers<S>(&self, domain_name: S) -> Result<Vec<String>, Error>
     where
         S: AsRef<str>,
     {
         self.inner
             .ns_lookup(domain_name.as_ref())
+            .await
             .map_err(Error::from)
             .map(|lookup| lookup.into_iter().map(|ns| ns.to_string()).collect())
     }
 
-    pub fn authoritive_resolver<S>(&self, host_name: S) -> Result<AuthoritiveResolver, Error>
+    pub async fn authoritive_resolver<S>(&self, host_name: S) -> Result<AuthoritiveResolver, Error>
     where
         S: AsRef<str>,
     {
         let ipv6_addresses = self
             .inner
             .ipv6_lookup(host_name.as_ref())
+            .await
             .map_err(Error::from)
             .map(aaaa_mapper(aaaa_to_ipv6))?;
 
         let ipv4_addresses = self
             .inner
             .ipv4_lookup(host_name.as_ref())
+            .await
             .map_err(Error::from)
             .map(a_mapper(a_to_ipv4))?;
 
@@ -140,10 +152,10 @@ impl RecursiveResolver {
 }
 
 /// Authoritive nameserver Resolver
-pub struct AuthoritiveResolver(hickory_resolver::Resolver);
+pub struct AuthoritiveResolver(hickory_resolver::Resolver<GenericConnector<TokioRuntimeProvider>>);
 
 impl AuthoritiveResolver {
-    pub fn has_single_acme<S>(&self, domain_name: S, challenge: S) -> Result<bool, Error>
+    pub async fn has_single_acme<S>(&self, domain_name: S, challenge: S) -> Result<bool, Error>
     where
         S: AsRef<str>,
     {
@@ -151,6 +163,7 @@ impl AuthoritiveResolver {
         match self
             .0
             .txt_lookup(format!("_acme-challenge.{}", domain_name.as_ref()))
+            .await
         {
             Ok(lookup) => {
                 let count = lookup.iter().count();
@@ -163,7 +176,7 @@ impl AuthoritiveResolver {
                 }
             }
             Err(error) => {
-                if let ResolveErrorKind::NoRecordsFound { .. } = error.kind() {
+                if let ResolveErrorKind::Message { .. } = error.kind() {
                     Ok(false)
                 } else {
                     Err(Error::from(error))
@@ -175,9 +188,9 @@ impl AuthoritiveResolver {
 
 #[cfg(test)]
 mod test {
-    use std::convert::identity;
+    use futures_util::{StreamExt, stream::iter};
 
-    use crate::{ResolverType, error::Error};
+    use crate::ResolverType;
 
     use super::RecursiveResolver;
 
@@ -185,20 +198,14 @@ mod test {
 
     #[test]
     fn google_nameserver() {
-        let resolver = ResolverType::Google
-            .resolver(true)
-            .map(RecursiveResolver::from);
-        assert!(resolver.is_ok());
+        let _ = ResolverType::Google.resolver(true);
     }
 
-    #[test]
-    fn paul_min_nl() {
-        let resolver = ResolverType::Google
-            .resolver(true)
-            .map(RecursiveResolver::from)
-            .unwrap();
+    #[tokio::test]
+    async fn paul_min_nl() {
+        let resolver: RecursiveResolver = ResolverType::Google.resolver(true).into();
 
-        let mut names = resolver.nameservers(DOMAIN_NAME).unwrap();
+        let mut names = resolver.nameservers(DOMAIN_NAME).await.unwrap();
         names.sort();
 
         assert_eq!(
@@ -212,22 +219,21 @@ mod test {
     }
 
     #[allow(dead_code)]
-    fn has_acme_challenge() {
-        let resolvers = ResolverType::Google
-            .resolver(true)
-            .map(RecursiveResolver::from)
-            .unwrap()
-            .authoritive_resolvers(DOMAIN_NAME)
-            .unwrap();
+    #[tokio::test]
+    async fn has_acme_challenge() {
+        let resolver: RecursiveResolver = ResolverType::Google.resolver(true).into();
 
-        let result = resolvers
-            .iter()
-            .map(|resolver| resolver.has_single_acme(DOMAIN_NAME, "JaJaNeeNee"))
-            .collect::<Result<Vec<bool>, Error>>()
-            .unwrap()
-            .into_iter()
-            .all(identity);
-
+        let resolvers = resolver.authoritive_resolvers(DOMAIN_NAME).await.unwrap();
+        let s = iter(resolvers);
+        let result = s
+            .all(async |resolver| {
+                resolver
+                    .has_single_acme(DOMAIN_NAME, "JaJaNeeNee")
+                    .await
+                    .ok()
+                    == Some(true)
+            })
+            .await;
         assert!(result);
     }
 }

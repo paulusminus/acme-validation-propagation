@@ -10,10 +10,12 @@ version = "0.1.8"
 [dependencies]
 thiserror = "2.0.0"
 tracing = "0.1.40"
-hickory-resolver = "0.24.1"
+hickory-resolver = { version = "0.25.1", features = ["tokio"] }
+futures-util = "0.3.31"
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
+tokio = { version = "*", features = ["macros"] }
 
 [profile.release]
 strip = true

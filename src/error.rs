@@ -1,6 +1,6 @@
 use std::{io, net::AddrParseError};
 
-use hickory_resolver::error::ResolveError;
+use hickory_resolver::ResolveError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
