@@ -3,7 +3,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use futures_util::{TryFutureExt, future::join_all};
 use hickory_resolver::{
     ResolveErrorKind, Resolver,
-    config::{CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolverConfig},
+    config::{
+        CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolveHosts,
+        ResolverConfig,
+    },
     lookup::{Ipv4Lookup, Ipv6Lookup},
     name_server::{GenericConnector, TokioConnectionProvider},
     proto::{
@@ -81,6 +84,7 @@ fn ipv6_resolver(
     );
     builder.options_mut().ip_strategy = LookupIpStrategy::Ipv6Only;
     builder.options_mut().recursion_desired = recursion;
+    builder.options_mut().use_hosts_file = ResolveHosts::Never;
     Ok(builder.build())
 }
 

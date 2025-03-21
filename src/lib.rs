@@ -2,9 +2,12 @@
 
 use futures_util::future::join_all;
 use hickory_resolver::{
-    config::{LookupIpStrategy, NameServerConfigGroup, ResolveHosts, ResolverConfig, ResolverOpts}, name_server::{GenericConnector, TokioConnectionProvider}, proto::runtime::{Executor, TokioRuntimeProvider}, Resolver
+    Resolver,
+    config::{LookupIpStrategy, NameServerConfigGroup, ResolveHosts, ResolverConfig, ResolverOpts},
+    name_server::{GenericConnector, TokioConnectionProvider},
+    proto::runtime::TokioRuntimeProvider,
 };
-use std::{convert::identity, net::IpAddr, thread::{sleep, spawn}, time::Duration};
+use std::{convert::identity, net::IpAddr, thread::sleep, time::Duration};
 
 use crate::error::Error;
 use resolver::{RecursiveResolver, ResolverType};
@@ -45,17 +48,20 @@ fn recursive_resolver(
     ipv6_resolver(group, true, ipv6_only)
 }
 
+#[cfg(feature = "tokio")]
 pub fn wait_sync<S>(domain_name: S, challenge: S) -> Result<()>
 where
-    S: AsRef<str>,
+    S: AsRef<str> + Send + 'static,
 {
-    let thread = spawn(|| {
-        let rt = tokio::runtime::Builder::new_current_thread()
+    std::thread::spawn(|| {
+        tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()?;
-            
-    });
-    Ok(())
+            .build()
+            .map_err(Into::into)
+            .and_then(|rt| rt.block_on(wait(domain_name, challenge)))
+    })
+    .join()
+    .unwrap()
 }
 
 /// wait checks the authoritive nameservers periodically.

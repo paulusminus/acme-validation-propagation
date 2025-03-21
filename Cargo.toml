@@ -7,11 +7,16 @@ name = "acme-validation-propagation"
 repository = "https://github.com/paulusminus/acme-validation-propagation"
 version = "0.1.8"
 
+[features]
+tokio = ["dep:tokio"]
+default = ["tokio"]
+
 [dependencies]
 thiserror = "2.0.0"
 tracing = "0.1.40"
 hickory-resolver = { version = "0.25.1", features = ["tokio"] }
 futures-util = "0.3.31"
+tokio = { version = "1.19.0", features = [], optional = true }
 
 [dev-dependencies]
 tracing-subscriber = "0.3.18"
