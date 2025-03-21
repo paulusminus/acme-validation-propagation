@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use futures_util::future::join_all;
+use futures_util::{TryFutureExt, future::join_all};
 use hickory_resolver::{
     ResolveErrorKind, Resolver,
     config::{CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolverConfig},
@@ -102,15 +102,18 @@ impl RecursiveResolver {
     where
         S: AsRef<str>,
     {
-        let nameservers = self.nameservers(domain_name).await?;
-        let h = join_all(
-            nameservers
+        self.nameservers(domain_name)
+            .and_then(async |nameservers| {
+                join_all(
+                    nameservers
+                        .into_iter()
+                        .map(|hostname| self.authoritive_resolver(hostname)),
+                )
+                .await
                 .into_iter()
-                .map(|hostname| self.authoritive_resolver(hostname)),
-        )
-        .await;
-        h.into_iter()
-            .collect::<Result<Vec<AuthoritiveResolver>, Error>>()
+                .collect::<Result<Vec<AuthoritiveResolver>, Error>>()
+            })
+            .await
     }
 
     pub async fn nameservers<S>(&self, domain_name: S) -> Result<Vec<String>, Error>
