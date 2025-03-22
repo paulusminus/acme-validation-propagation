@@ -12,15 +12,15 @@ tokio = ["dep:tokio"]
 default = ["tokio"]
 
 [dependencies]
-thiserror = "2.0.0"
-tracing = "0.1.40"
+thiserror = "2.0.12"
+tracing = "0.1.41"
 hickory-resolver = { version = "0.25.1", features = ["tokio"] }
 futures-util = "0.3.31"
-tokio = { version = "1.19.0", features = [], optional = true }
+tokio = { version = "1.44.1", features = [], optional = true }
 
 [dev-dependencies]
-tracing-subscriber = "0.3.18"
-tokio = { version = "*", features = ["macros"] }
+tracing-subscriber = "0.3.19"
+tokio = { version = "1.44.1", features = ["macros"] }
 
 [profile.release]
 strip = true

@@ -17,7 +17,7 @@ pub enum Error {
     #[error("Resolve: {0}")]
     Resolve(#[from] ResolveError),
 
-    #[error("")]
+    #[error("Parse: {0}")]
     Parse(#[from] AddrParseError),
 
     #[error("Multiple acme challenges")]
