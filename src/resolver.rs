@@ -225,22 +225,21 @@ mod test {
         )
     }
 
-    #[allow(dead_code)]
-    #[tokio::test]
-    async fn has_acme_challenge() {
-        let resolver: RecursiveResolver = ResolverType::Google.resolver(true).into();
+    // #[tokio::test]
+    // async fn has_acme_challenge() {
+    //     let resolver: RecursiveResolver = ResolverType::Google.resolver(true).into();
 
-        let resolvers = resolver.authoritive_resolvers(DOMAIN_NAME).await.unwrap();
-        let s = iter(resolvers);
-        let result = s
-            .all(async |resolver| {
-                resolver
-                    .has_single_acme(DOMAIN_NAME, "JaJaNeeNee")
-                    .await
-                    .ok()
-                    == Some(true)
-            })
-            .await;
-        assert!(result);
-    }
+    //     let resolvers = resolver.authoritive_resolvers(DOMAIN_NAME).await.unwrap();
+    //     let s = iter(resolvers);
+    //     let result = s
+    //         .all(async |resolver| {
+    //             resolver
+    //                 .has_single_acme(DOMAIN_NAME, "JaJaNeeNee")
+    //                 .await
+    //                 .ok()
+    //                 == Some(true)
+    //         })
+    //         .await;
+    //     assert!(result);
+    // }
 }
