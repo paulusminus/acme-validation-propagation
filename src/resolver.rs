@@ -195,11 +195,8 @@ impl AuthoritiveResolver {
 
 #[cfg(test)]
 mod test {
-    use futures_util::{StreamExt, stream::iter};
-
-    use crate::ResolverType;
-
     use super::RecursiveResolver;
+    use crate::ResolverType;
 
     const DOMAIN_NAME: &str = "paulmin.nl.";
 
