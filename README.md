@@ -8,10 +8,12 @@ an acme challenge record is propagated to all authoritive nameservers.
 ## Example
 
 ```no_run
-use acme_validation_propagation::wait;
-
-match wait("example.com", "89823875") {
-    Ok(_) => println!("Propagation finished"),
-    Err(error) => eprintln!("Error: {error}"),
-}
+# tokio_test::block_on(async {
+    use acme_validation_propagation::wait;
+    let result = wait("example.com", "89823875").await;
+    match result {
+        Ok(_) => println!("Propagation finished"),
+        Err(error) => eprintln!("Error: {error}"),
+    }
+# })
 ```
