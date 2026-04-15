@@ -102,7 +102,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::{fmt::Display, net::IpAddr};
 
     use hickory_resolver::{
