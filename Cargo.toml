@@ -14,7 +14,7 @@ default = ["tokio"]
 [dependencies]
 thiserror = "2.0.12"
 tracing = "0.1.41"
-hickory-resolver = { version = "0.25.1", features = ["tokio"] }
+hickory-resolver = { version = "0.26.0", features = ["tokio"] }
 futures-util = "0.3.31"
 tokio = { version = "1.44.1", features = [], optional = true }
 

@@ -2,17 +2,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures_util::{TryFutureExt, future::join_all};
 use hickory_resolver::{
-    ResolveErrorKind, Resolver,
-    config::{
-        CLOUDFLARE_IPS, GOOGLE_IPS, LookupIpStrategy, NameServerConfigGroup, ResolveHosts,
-        ResolverConfig,
-    },
-    lookup::{Ipv4Lookup, Ipv6Lookup},
-    name_server::{GenericConnector, TokioConnectionProvider},
-    proto::{
-        rr::rdata::{A, AAAA},
-        runtime::TokioRuntimeProvider,
-    },
+    Resolver,
+    config::{CLOUDFLARE, GOOGLE, LookupIpStrategy, ResolveHosts, ResolverConfig, ServerGroup},
+    lookup::Lookup,
+    lookup_ip::LookupIp,
+    net::runtime::TokioRuntimeProvider,
+    proto::rr::IntoName,
 };
 
 use crate::{Error, recursive_resolver};
@@ -28,8 +23,8 @@ pub(crate) enum ResolverType {
 impl ResolverType {
     fn nameservers(&self) -> &[IpAddr] {
         match self {
-            ResolverType::Google => GOOGLE_IPS,
-            ResolverType::Cloudflare => CLOUDFLARE_IPS,
+            ResolverType::Google => GOOGLE.ips,
+            ResolverType::Cloudflare => CLOUDFLARE.ips,
             ResolverType::Local => &[
                 IpAddr::V6(Ipv6Addr::LOCALHOST),
                 IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -37,7 +32,7 @@ impl ResolverType {
         }
     }
 
-    pub fn resolver(&self, ipv6_only: bool) -> Resolver<GenericConnector<TokioRuntimeProvider>> {
+    pub fn resolver(&self, ipv6_only: bool) -> Resolver<TokioRuntimeProvider> {
         match self {
             ResolverType::Google => recursive_resolver(self.nameservers(), ipv6_only),
             ResolverType::Cloudflare => recursive_resolver(self.nameservers(), ipv6_only),
@@ -50,21 +45,21 @@ impl ResolverType {
     }
 }
 
-fn aaaa_to_ipv6(aaaa: AAAA) -> IpAddr {
-    IpAddr::V6(*aaaa)
-}
+// fn aaaa_to_ipv6(aaaa: &Record<RData>) -> IpAddr {
+//     aaaa.data.ip_addr().unwrap()
+// }
 
-fn a_to_ipv4(a: A) -> IpAddr {
-    IpAddr::V4(*a)
-}
+// fn a_to_ipv4(a: &Record<RData>) -> IpAddr {
+//     a.data.ip_addr().unwrap()
+// }
 
-fn aaaa_mapper(f: fn(AAAA) -> IpAddr) -> impl Fn(Ipv6Lookup) -> Vec<IpAddr> {
-    move |lookup| lookup.into_iter().map(f).collect()
-}
+// fn aaaa_mapper(f: fn(&Record<RData>) -> IpAddr) -> impl Fn(Lookup) -> Vec<IpAddr> {
+//     move |lookup| lookup.answers().into_iter().map(f).collect()
+// }
 
-fn a_mapper(f: fn(A) -> IpAddr) -> impl Fn(Ipv4Lookup) -> Vec<IpAddr> {
-    move |lookup| lookup.into_iter().map(f).collect()
-}
+// fn a_mapper(f: fn(&Record<RData>) -> IpAddr) -> impl Fn(Lookup) -> Vec<IpAddr> {
+//     move |lookup| lookup.answers().into_iter().map(f).collect()
+// }
 
 // fn default_ipv6_resolver_opts(recursion: bool) -> ResolverOpts {
 //     let mut options = ResolverOpts::default();
@@ -75,43 +70,40 @@ fn a_mapper(f: fn(A) -> IpAddr) -> impl Fn(Ipv4Lookup) -> Vec<IpAddr> {
 // }
 
 fn ipv6_resolver(
-    group: NameServerConfigGroup,
+    group: ServerGroup,
     recursion: bool,
-) -> Result<Resolver<GenericConnector<TokioRuntimeProvider>>, Error> {
+) -> Result<Resolver<TokioRuntimeProvider>, Error> {
     let mut builder = Resolver::builder_with_config(
-        ResolverConfig::from_parts(None, vec![], group),
-        TokioConnectionProvider::new(TokioRuntimeProvider::new()),
+        ResolverConfig::from_parts(None, vec![], group.udp_and_tcp().collect::<Vec<_>>()),
+        TokioRuntimeProvider::new(),
     );
     builder.options_mut().ip_strategy = LookupIpStrategy::Ipv6Only;
     builder.options_mut().recursion_desired = recursion;
     builder.options_mut().use_hosts_file = ResolveHosts::Never;
-    Ok(builder.build())
+    builder.build().map_err(Into::into)
 }
 
 pub struct RecursiveResolver {
-    inner: Resolver<GenericConnector<TokioRuntimeProvider>>,
+    inner: Resolver<TokioRuntimeProvider>,
 }
 
-impl From<Resolver<GenericConnector<TokioRuntimeProvider>>> for RecursiveResolver {
-    fn from(resolver: Resolver<GenericConnector<TokioRuntimeProvider>>) -> Self {
+impl From<Resolver<TokioRuntimeProvider>> for RecursiveResolver {
+    fn from(resolver: Resolver<TokioRuntimeProvider>) -> Self {
         Self { inner: resolver }
     }
 }
 
 impl RecursiveResolver {
-    pub async fn authoritive_resolvers<S>(
+    pub async fn authoritive_resolvers(
         &self,
-        domain_name: S,
-    ) -> Result<Vec<AuthoritiveResolver>, Error>
-    where
-        S: AsRef<str>,
-    {
+        domain_name: &str,
+    ) -> Result<Vec<AuthoritiveResolver>, Error> {
         self.nameservers(domain_name)
             .and_then(async |nameservers| {
                 join_all(
                     nameservers
-                        .into_iter()
-                        .map(|hostname| self.authoritive_resolver(hostname)),
+                        .iter()
+                        .map(|hostname| self.authoritive_resolver(hostname.as_str())),
                 )
                 .await
                 .into_iter()
@@ -120,38 +112,44 @@ impl RecursiveResolver {
             .await
     }
 
-    pub async fn nameservers<S>(&self, domain_name: S) -> Result<Vec<String>, Error>
-    where
-        S: AsRef<str>,
-    {
+    pub async fn nameservers(&self, domain_name: &str) -> Result<Vec<String>, Error> {
         self.inner
-            .ns_lookup(domain_name.as_ref())
+            .ns_lookup(domain_name)
+            .map_ok(|lookup: Lookup| {
+                lookup
+                    .answers()
+                    .into_iter()
+                    .map(|ns| {
+                        // dbg!(&ns);
+                        ns.data.to_string()
+                    })
+                    .collect()
+            })
+            .err_into()
             .await
-            .map_err(Error::from)
-            .map(|lookup| lookup.into_iter().map(|ns| ns.to_string()).collect())
     }
 
-    pub async fn authoritive_resolver<S>(&self, host_name: S) -> Result<AuthoritiveResolver, Error>
-    where
-        S: AsRef<str>,
-    {
-        let ipv6_addresses = self
+    pub async fn authoritive_resolver(
+        &self,
+        host_name: &str,
+    ) -> Result<AuthoritiveResolver, Error> {
+        let j = self
             .inner
-            .ipv6_lookup(host_name.as_ref())
-            .await
-            .map_err(Error::from)
-            .map(aaaa_mapper(aaaa_to_ipv6))?;
+            .lookup_ip(host_name)
+            .map_ok(|lookup: LookupIp| {
+                lookup
+                    .iter()
+                    .map(|i| i.to_ip().unwrap())
+                    .collect::<Vec<IpAddr>>()
+            })
+            .await?;
 
-        let ipv4_addresses = self
-            .inner
-            .ipv4_lookup(host_name.as_ref())
-            .await
-            .map_err(Error::from)
-            .map(a_mapper(a_to_ipv4))?;
-
-        let ip_addresess: Vec<IpAddr> = ipv6_addresses.into_iter().chain(ipv4_addresses).collect();
         ipv6_resolver(
-            NameServerConfigGroup::from_ips_clear(ip_addresess.as_slice(), 53, false),
+            ServerGroup {
+                ips: j.as_slice(),
+                server_name: host_name,
+                path: "",
+            },
             false,
         )
         .map(AuthoritiveResolver)
@@ -159,36 +157,23 @@ impl RecursiveResolver {
 }
 
 /// Authoritive nameserver Resolver
-pub struct AuthoritiveResolver(hickory_resolver::Resolver<GenericConnector<TokioRuntimeProvider>>);
+pub struct AuthoritiveResolver(hickory_resolver::Resolver<TokioRuntimeProvider>);
 
 impl AuthoritiveResolver {
-    pub async fn has_single_acme<S>(&self, domain_name: S, challenge: S) -> Result<bool, Error>
-    where
-        S: AsRef<str>,
-    {
+    pub async fn has_single_acme(&self, domain_name: &str, challenge: &str) -> Result<bool, Error> {
         self.0.clear_cache();
-        match self
+        let lookup: Lookup = self
             .0
-            .txt_lookup(format!("_acme-challenge.{}", domain_name.as_ref()))
-            .await
-        {
-            Ok(lookup) => {
-                let count = lookup.iter().count();
-                if count == 1 {
-                    Ok(lookup
-                        .iter()
-                        .any(|txt| txt.to_string() == challenge.as_ref()))
-                } else {
-                    Err(Error::MultipleAcme)
-                }
-            }
-            Err(error) => {
-                if let ResolveErrorKind::Message { .. } = error.kind() {
-                    Ok(false)
-                } else {
-                    Err(Error::from(error))
-                }
-            }
+            .txt_lookup(format!("_acme-challenge.{}", domain_name))
+            .await?;
+        let count = lookup.answers().iter().count();
+        if count == 1 {
+            Ok(lookup
+                .answers()
+                .iter()
+                .any(|txt| txt.to_string().as_str() == challenge))
+        } else {
+            Err(Error::MultipleAcme)
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::{io, net::AddrParseError};
 
-use hickory_resolver::ResolveError;
+use hickory_resolver::net::{DnsError, NetError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,7 +15,10 @@ pub enum Error {
     IO(#[from] io::Error),
 
     #[error("Resolve: {0}")]
-    Resolve(#[from] ResolveError),
+    Resolve(#[from] DnsError),
+
+    #[error("Net: {0}")]
+    Net(#[from] NetError),
 
     #[error("Parse: {0}")]
     Parse(#[from] AddrParseError),

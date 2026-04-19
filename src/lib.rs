@@ -3,9 +3,8 @@
 use futures_util::future::join_all;
 use hickory_resolver::{
     Resolver,
-    config::{LookupIpStrategy, NameServerConfigGroup, ResolveHosts, ResolverConfig, ResolverOpts},
-    name_server::{GenericConnector, TokioConnectionProvider},
-    proto::runtime::TokioRuntimeProvider,
+    config::{LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts},
+    net::runtime::TokioRuntimeProvider,
 };
 use std::{convert::identity, net::IpAddr, thread::sleep, time::Duration};
 
@@ -21,10 +20,10 @@ const MAX_RETRIES: usize = 720;
 const WAIT_SECONDS: u64 = 5;
 
 fn ipv6_resolver(
-    group: NameServerConfigGroup,
+    group: Vec<NameServerConfig>,
     recursion: bool,
     ipv6_only: bool,
-) -> Resolver<GenericConnector<TokioRuntimeProvider>> {
+) -> Resolver<TokioRuntimeProvider> {
     let config = ResolverConfig::from_parts(None, vec![], group);
     let mut options = ResolverOpts::default();
     if ipv6_only {
@@ -32,19 +31,16 @@ fn ipv6_resolver(
     }
     options.recursion_desired = recursion;
     options.use_hosts_file = ResolveHosts::Never;
-    let resolver_builder = Resolver::builder_with_config(
-        config,
-        TokioConnectionProvider::new(TokioRuntimeProvider::new()),
-    );
-    resolver_builder.build()
+    let resolver_builder = Resolver::builder_with_config(config, TokioRuntimeProvider::new());
+    resolver_builder.build().unwrap()
     // Resolver::new(config, options).map_err(Error::from)
 }
 
-fn recursive_resolver(
-    ips: &[IpAddr],
-    ipv6_only: bool,
-) -> Resolver<GenericConnector<TokioRuntimeProvider>> {
-    let group = NameServerConfigGroup::from_ips_clear(ips, 53, false);
+fn recursive_resolver(ips: &[IpAddr], ipv6_only: bool) -> Resolver<TokioRuntimeProvider> {
+    let group = ips
+        .into_iter()
+        .map(|ip| NameServerConfig::udp_and_tcp(*ip))
+        .collect::<Vec<_>>();
     ipv6_resolver(group, true, ipv6_only)
 }
 
@@ -103,21 +99,24 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::{fmt::Display, net::IpAddr};
+    use std::net::IpAddr;
 
+    use futures_util::TryFutureExt;
     use hickory_resolver::{
-        lookup::{Ipv6Lookup, NsLookup},
-        proto::rr::rdata::{AAAA, NS},
+        lookup::Lookup,
+        proto::rr::{RData, Record},
     };
 
     use crate::{ResolverType, error::Error};
 
-    fn to_string<D: Display>(d: D) -> String {
-        d.to_string()
-    }
-
-    fn aaaa_to_ipv6(aaaa: AAAA) -> IpAddr {
-        IpAddr::V6(*aaaa)
+    fn to_string(d: &Record<RData>) -> String {
+        match d.data.clone() {
+            RData::NS(ns) => {
+                dbg!(&ns.0);
+                ns.0.to_string()
+            }
+            _ => "".to_string(),
+        }
     }
 
     // fn lookup(
@@ -134,35 +133,39 @@ mod test {
     //     async move |resolver| resolver.ns_lookup(name).await.map_err(Error::from)
     // }
 
-    fn aaaa_mapper(f: fn(AAAA) -> IpAddr) -> impl Fn(Ipv6Lookup) -> Vec<IpAddr> {
-        move |lookup| lookup.into_iter().map(f).collect()
+    fn ns_mapper(f: fn(&Record<RData>) -> String) -> impl Fn(Lookup) -> Vec<String> {
+        move |lookup| lookup.answers().iter().map(f).collect()
     }
 
-    fn ns_mapper(f: fn(NS) -> String) -> impl Fn(NsLookup) -> Vec<String> {
-        move |lookup| lookup.into_iter().map(f).collect()
+    async fn to_ipv6(lookup: Lookup) -> Result<Vec<IpAddr>, Error> {
+        lookup
+            .answers()
+            .iter()
+            .map(|a| a.data.ip_addr().ok_or(Error::Ipv4))
+            .collect()
     }
 
     async fn ipv6_address_lookup(name: &str) -> Result<Vec<IpAddr>, Error> {
-        let resolver = ResolverType::Google.resolver(true);
-        resolver
+        ResolverType::Google
+            .resolver(true)
             .ipv6_lookup(name)
+            .err_into()
+            .and_then(to_ipv6)
             .await
-            .map(aaaa_mapper(aaaa_to_ipv6))
-            .map_err(Into::into)
     }
 
     async fn nameservers_lookup(name: &str) -> Result<Vec<String>, Error> {
         ResolverType::Google
             .resolver(true)
             .ns_lookup(name)
+            .map_ok(ns_mapper(to_string))
+            .err_into()
             .await
-            .map(ns_mapper(to_string))
-            .map_err(Into::into)
     }
 
     #[tokio::test]
     async fn test_www_paulmin_nl() {
-        let addresses = ipv6_address_lookup("www.paulmin.nl.").await.unwrap();
+        let addresses = ipv6_address_lookup("paulusminus.github.io.").await.unwrap();
         assert!(addresses.contains(&"2606:50c0:8000::153".parse::<IpAddr>().unwrap()),);
         assert!(addresses.contains(&"2606:50c0:8001::153".parse::<IpAddr>().unwrap()),);
         assert!(addresses.contains(&"2606:50c0:8002::153".parse::<IpAddr>().unwrap()),);
