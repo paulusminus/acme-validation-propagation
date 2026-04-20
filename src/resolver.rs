@@ -119,10 +119,7 @@ impl RecursiveResolver {
                 lookup
                     .answers()
                     .into_iter()
-                    .map(|ns| {
-                        // dbg!(&ns);
-                        ns.data.to_string()
-                    })
+                    .map(|ns| ns.data.to_string())
                     .collect()
             })
             .err_into()
