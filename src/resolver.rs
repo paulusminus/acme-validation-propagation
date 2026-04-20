@@ -3,11 +3,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use futures_util::{TryFutureExt, future::join_all};
 use hickory_resolver::{
     Resolver,
-    config::{CLOUDFLARE, GOOGLE, LookupIpStrategy, ResolveHosts, ResolverConfig, ServerGroup},
+    config::{
+        CLOUDFLARE, GOOGLE, LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig,
+    },
     lookup::Lookup,
     lookup_ip::LookupIp,
     net::runtime::TokioRuntimeProvider,
-    proto::rr::IntoName,
 };
 
 use crate::{Error, recursive_resolver};
@@ -45,36 +46,24 @@ impl ResolverType {
     }
 }
 
-// fn aaaa_to_ipv6(aaaa: &Record<RData>) -> IpAddr {
-//     aaaa.data.ip_addr().unwrap()
-// }
+fn to_ips(lookup: LookupIp) -> Vec<IpAddr> {
+    lookup.iter().collect::<Vec<IpAddr>>()
+}
 
-// fn a_to_ipv4(a: &Record<RData>) -> IpAddr {
-//     a.data.ip_addr().unwrap()
-// }
-
-// fn aaaa_mapper(f: fn(&Record<RData>) -> IpAddr) -> impl Fn(Lookup) -> Vec<IpAddr> {
-//     move |lookup| lookup.answers().into_iter().map(f).collect()
-// }
-
-// fn a_mapper(f: fn(&Record<RData>) -> IpAddr) -> impl Fn(Lookup) -> Vec<IpAddr> {
-//     move |lookup| lookup.answers().into_iter().map(f).collect()
-// }
-
-// fn default_ipv6_resolver_opts(recursion: bool) -> ResolverOpts {
-//     let mut options = ResolverOpts::default();
-//     options.ip_strategy = LookupIpStrategy::Ipv6Only;
-//     options.recursion_desired = recursion;
-//     options.use_hosts_file = ResolveHosts::Never;
-//     options
-// }
+fn to_strings(lookup: Lookup) -> Vec<String> {
+    lookup
+        .answers()
+        .iter()
+        .map(|a| a.data.to_string())
+        .collect()
+}
 
 fn ipv6_resolver(
-    group: ServerGroup,
+    group: Vec<NameServerConfig>,
     recursion: bool,
 ) -> Result<Resolver<TokioRuntimeProvider>, Error> {
     let mut builder = Resolver::builder_with_config(
-        ResolverConfig::from_parts(None, vec![], group.udp_and_tcp().collect::<Vec<_>>()),
+        ResolverConfig::from_parts(None, vec![], group),
         TokioRuntimeProvider::new(),
     );
     builder.options_mut().ip_strategy = LookupIpStrategy::Ipv6Only;
@@ -103,7 +92,7 @@ impl RecursiveResolver {
                 join_all(
                     nameservers
                         .iter()
-                        .map(|hostname| self.authoritive_resolver(hostname.as_str())),
+                        .map(|hostname| self.authoritive_resolver(hostname)),
                 )
                 .await
                 .into_iter()
@@ -115,13 +104,7 @@ impl RecursiveResolver {
     pub async fn nameservers(&self, domain_name: &str) -> Result<Vec<String>, Error> {
         self.inner
             .ns_lookup(domain_name)
-            .map_ok(|lookup: Lookup| {
-                lookup
-                    .answers()
-                    .into_iter()
-                    .map(|ns| ns.data.to_string())
-                    .collect()
-            })
+            .map_ok(to_strings)
             .err_into()
             .await
     }
@@ -130,23 +113,10 @@ impl RecursiveResolver {
         &self,
         host_name: &str,
     ) -> Result<AuthoritiveResolver, Error> {
-        let j = self
-            .inner
-            .lookup_ip(host_name)
-            .map_ok(|lookup: LookupIp| {
-                lookup
-                    .iter()
-                    .map(|i| i.to_ip().unwrap())
-                    .collect::<Vec<IpAddr>>()
-            })
-            .await?;
+        let j = self.inner.lookup_ip(host_name).map_ok(to_ips).await?;
 
         ipv6_resolver(
-            ServerGroup {
-                ips: j.as_slice(),
-                server_name: host_name,
-                path: "",
-            },
+            j.into_iter().map(NameServerConfig::udp_and_tcp).collect(),
             false,
         )
         .map(AuthoritiveResolver)
@@ -168,7 +138,7 @@ impl AuthoritiveResolver {
             Ok(lookup
                 .answers()
                 .iter()
-                .any(|txt| txt.to_string().as_str() == challenge))
+                .any(|txt| txt.data.to_string().as_str() == challenge))
         } else {
             Err(Error::MultipleAcme)
         }
@@ -203,22 +173,4 @@ mod test {
             ]
         )
     }
-
-    // #[tokio::test]
-    // async fn has_acme_challenge() {
-    //     let resolver: RecursiveResolver = ResolverType::Google.resolver(true).into();
-
-    //     let resolvers = resolver.authoritive_resolvers(DOMAIN_NAME).await.unwrap();
-    //     let s = iter(resolvers);
-    //     let result = s
-    //         .all(async |resolver| {
-    //             resolver
-    //                 .has_single_acme(DOMAIN_NAME, "JaJaNeeNee")
-    //                 .await
-    //                 .ok()
-    //                 == Some(true)
-    //         })
-    //         .await;
-    //     assert!(result);
-    // }
 }

@@ -38,7 +38,7 @@ fn ipv6_resolver(
 
 fn recursive_resolver(ips: &[IpAddr], ipv6_only: bool) -> Resolver<TokioRuntimeProvider> {
     let group = ips
-        .into_iter()
+        .iter()
         .map(|ip| NameServerConfig::udp_and_tcp(*ip))
         .collect::<Vec<_>>();
     ipv6_resolver(group, true, ipv6_only)
@@ -110,13 +110,7 @@ mod test {
     use crate::{ResolverType, error::Error};
 
     fn to_string(d: &Record<RData>) -> String {
-        match d.data.clone() {
-            RData::NS(ns) => {
-                dbg!(&ns.0);
-                ns.0.to_string()
-            }
-            _ => "".to_string(),
-        }
+        d.data.to_string()
     }
 
     // fn lookup(
