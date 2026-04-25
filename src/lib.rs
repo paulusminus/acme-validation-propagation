@@ -33,7 +33,6 @@ fn ipv6_resolver(
     options.use_hosts_file = ResolveHosts::Never;
     let resolver_builder = Resolver::builder_with_config(config, TokioRuntimeProvider::new());
     resolver_builder.build().unwrap()
-    // Resolver::new(config, options).map_err(Error::from)
 }
 
 fn recursive_resolver(ips: &[IpAddr], ipv6_only: bool) -> Resolver<TokioRuntimeProvider> {
@@ -112,20 +111,6 @@ mod test {
     fn to_string(d: &Record<RData>) -> String {
         d.data.to_string()
     }
-
-    // fn lookup(
-    //     name: &str,
-    // ) -> impl AsyncFn(Resolver<GenericConnector<TokioRuntimeProvider>>) -> Result<Ipv6Lookup, Error> + '_
-    // {
-    //     async move |resolver| resolver.ipv6_lookup(name).await.map_err(Error::from)
-    // }
-
-    // fn ns_lookup(
-    //     name: &str,
-    // ) -> impl AsyncFn(Resolver<GenericConnector<TokioRuntimeProvider>>) -> Result<NsLookup, Error> + '_
-    // {
-    //     async move |resolver| resolver.ns_lookup(name).await.map_err(Error::from)
-    // }
 
     fn ns_mapper(f: fn(&Record<RData>) -> String) -> impl Fn(Lookup) -> Vec<String> {
         move |lookup| lookup.answers().iter().map(f).collect()

@@ -1,5 +1,3 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
 use futures_util::{TryFutureExt, future::join_all};
 use hickory_resolver::{
     Resolver,
@@ -10,8 +8,9 @@ use hickory_resolver::{
     lookup_ip::LookupIp,
     net::runtime::TokioRuntimeProvider,
 };
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use crate::{Error, recursive_resolver};
+use crate::{Error, Result, recursive_resolver};
 
 pub(crate) enum ResolverType {
     Google,
@@ -61,7 +60,7 @@ fn to_strings(lookup: Lookup) -> Vec<String> {
 fn ipv6_resolver(
     group: Vec<NameServerConfig>,
     recursion: bool,
-) -> Result<Resolver<TokioRuntimeProvider>, Error> {
+) -> Result<Resolver<TokioRuntimeProvider>> {
     let mut builder = Resolver::builder_with_config(
         ResolverConfig::from_parts(None, vec![], group),
         TokioRuntimeProvider::new(),
@@ -86,7 +85,7 @@ impl RecursiveResolver {
     pub async fn authoritive_resolvers(
         &self,
         domain_name: &str,
-    ) -> Result<Vec<AuthoritiveResolver>, Error> {
+    ) -> Result<Vec<AuthoritiveResolver>> {
         self.nameservers(domain_name)
             .and_then(async |nameservers| {
                 join_all(
@@ -96,12 +95,12 @@ impl RecursiveResolver {
                 )
                 .await
                 .into_iter()
-                .collect::<Result<Vec<AuthoritiveResolver>, Error>>()
+                .collect::<Result<Vec<AuthoritiveResolver>>>()
             })
             .await
     }
 
-    pub async fn nameservers(&self, domain_name: &str) -> Result<Vec<String>, Error> {
+    pub async fn nameservers(&self, domain_name: &str) -> Result<Vec<String>> {
         self.inner
             .ns_lookup(domain_name)
             .map_ok(to_strings)
@@ -109,10 +108,7 @@ impl RecursiveResolver {
             .await
     }
 
-    pub async fn authoritive_resolver(
-        &self,
-        host_name: &str,
-    ) -> Result<AuthoritiveResolver, Error> {
+    pub async fn authoritive_resolver(&self, host_name: &str) -> Result<AuthoritiveResolver> {
         let j = self.inner.lookup_ip(host_name).map_ok(to_ips).await?;
 
         ipv6_resolver(
@@ -127,7 +123,7 @@ impl RecursiveResolver {
 pub struct AuthoritiveResolver(hickory_resolver::Resolver<TokioRuntimeProvider>);
 
 impl AuthoritiveResolver {
-    pub async fn has_single_acme(&self, domain_name: &str, challenge: &str) -> Result<bool, Error> {
+    pub async fn has_single_acme(&self, domain_name: &str, challenge: &str) -> Result<bool> {
         self.0.clear_cache();
         let lookup: Lookup = self
             .0

@@ -1,6 +1,5 @@
-use std::{io, net::AddrParseError};
-
 use hickory_resolver::net::{DnsError, NetError};
+use std::{io, net::AddrParseError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
