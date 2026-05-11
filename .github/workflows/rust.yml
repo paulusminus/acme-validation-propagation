@@ -13,6 +13,6 @@ jobs:
 
     steps:
       - uses: dtolnay/rust-toolchain@stable
-      - uses: paulusminus/rust-check@v5
+      - uses: paulusminus/rust-check@v6
         with:
           build: true
