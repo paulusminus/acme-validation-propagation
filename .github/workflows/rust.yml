@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
       - uses: paulusminus/rust-check@v6
         with:
           build: true
