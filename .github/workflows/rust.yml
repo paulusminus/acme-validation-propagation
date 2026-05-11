@@ -2,17 +2,17 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
 
     steps:
-    - uses: paulusminus/rust-check@v5
-      with:
-        build: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: paulusminus/rust-check@v5
+        with:
+          build: true
